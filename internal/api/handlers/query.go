@@ -2,11 +2,25 @@ package handlers
 
 import (
 	"devlog-ai/internal/api/middleware"
+	"devlog-ai/internal/rag"
 	"devlog-ai/pkg/apimodels"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 )
+
+var ragService *rag.Service
+
+// InitQueryHandler initializes the query handler
+func InitQueryHandler() error {
+	var err error
+	ragService, err = rag.NewService()
+	if err != nil {
+		return err
+	}
+	return nil
+}
 
 // QueryHandler processes natural language queries against logs
 func QueryHandler(w http.ResponseWriter, r *http.Request) {
@@ -50,19 +64,44 @@ func QueryHandler(w http.ResponseWriter, r *http.Request) {
 		query.ProjectID = user.ProjectID
 	}
 
-	// TODO: Implement actual RAG query processing
-	// For now, return a mock response with user information
-	response := apimodels.QueryResponse{
-		Answer: "This is a response to your query: " + query.Query + " (for user " + user.Name + ")",
-		RelatedLogs: []string{
-			"2023-06-01T12:00:00Z ERROR: Connection failed",
-			"2023-06-01T12:01:00Z WARN: Retry attempt 1",
-		},
-		Sources: []string{
-			"app-service-1",
-			"database-service",
-		},
-		ProcessingMs: 150,
+	// Check if RAG service is available
+	if ragService == nil {
+		log.Println("RAG service not initialized, using mock response")
+		// Return a mock response
+		response := apimodels.QueryResponse{
+			Answer: "RAG service is not available. This is a mock response to your query: " + query.Query,
+			RelatedLogs: []string{
+				"2023-06-01T12:00:00Z ERROR: Connection failed",
+				"2023-06-01T12:01:00Z WARN: Retry attempt 1",
+			},
+			Sources: []string{
+				"app-service-1",
+				"database-service",
+			},
+			ProcessingMs: 150,
+		}
+
+		// Set response headers
+		w.Header().Set("Content-Type", "application/json")
+		
+		// Write the response
+		jsonResponse, err := json.Marshal(response)
+		if err != nil {
+			http.Error(w, "Error generating response", http.StatusInternalServerError)
+			return
+		}
+		
+		w.WriteHeader(http.StatusOK)
+		w.Write(jsonResponse)
+		return
+	}
+
+	// Use RAG service to process the query
+	response, err := ragService.QueryLogs(query)
+	if err != nil {
+		log.Printf("Error processing query: %v", err)
+		http.Error(w, "Error processing query", http.StatusInternalServerError)
+		return
 	}
 
 	// Set response headers
