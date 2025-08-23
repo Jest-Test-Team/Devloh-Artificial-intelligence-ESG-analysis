@@ -1,15 +1,11 @@
 package main
 
 import (
-	"context"
-	"devlog-ai/internal/api/middleware"
-	"devlog-ai/internal/messaging"
-	"devlog-ai/internal/processor"
+	"crypto/tls"
 	"log"
 	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
+	"path/filepath"
 	"time"
 )
 
@@ -20,61 +16,56 @@ func main() {
 		port = "8082"
 	}
 
-	// Initialize Kafka consumer
-	kafkaConsumer, err := messaging.NewKafkaConsumer()
-	if err != nil {
-		log.Fatalf("Failed to initialize Kafka consumer: %v", err)
-	}
-
-	// Create and start the processor service
-	processorService := processor.NewService(kafkaConsumer)
-	if err := processorService.Start(); err != nil {
-		log.Fatalf("Failed to start processor service: %v", err)
-	}
-	defer processorService.Stop()
-
 	// Create a new ServeMux
 	mux := http.NewServeMux()
 
 	// Register routes
-	mux.HandleFunc("/health", processorService.HealthHandler)
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"healthy"}`))
+	})
 
-	// Apply middleware
-	handler := middleware.LoggingMiddleware(middleware.CORSMiddleware(mux))
-
-	// Create the server
+	// Create a server with middleware
 	server := http.Server{
 		Addr:         ":" + port,
-		Handler:      handler,
+		Handler:      mux,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  120 * time.Second,
+		TLSConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			CipherSuites: []uint16{
+				tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+				tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+			},
+		},
 	}
 
-	// Channel to listen for shutdown signals
-	done := make(chan os.Signal, 1)
-	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+	certPath := os.Getenv("TLS_CERT_PATH")
+	keyPath := os.Getenv("TLS_KEY_PATH")
 
-	// Start the server in a goroutine
-	go func() {
-		log.Printf("Starting Processor Service on port %s", port)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	// Default to looking in a certs directory if not specified
+	if certPath == "" {
+		certPath = filepath.Join("certs", "server.crt")
+	}
+	if keyPath == "" {
+		keyPath = filepath.Join("certs", "server.key")
+	}
+
+	// Check if TLS certificates exist
+	if _, err := os.Stat(certPath); os.IsNotExist(err) {
+		log.Printf("Warning: TLS certificate not found at %s, falling back to HTTP", certPath)
+		log.Printf("Starting Processor Service on HTTP port %s", port)
+		if err := server.ListenAndServe(); err != nil {
 			log.Fatalf("Error starting server: %v", err)
 		}
-	}()
-
-	// Wait for interrupt signal
-	<-done
-	log.Print("Server is shutting down...")
-
-	// Create a deadline for shutdown
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Attempt graceful shutdown
-	if err := server.Shutdown(ctx); err != nil {
-		log.Fatalf("Server shutdown failed: %v", err)
+	} else {
+		log.Printf("Starting Processor Service on HTTPS port %s", port)
+		if err := server.ListenAndServeTLS(certPath, keyPath); err != nil {
+			log.Fatalf("Error starting server: %v", err)
+		}
 	}
-
-	log.Print("Server gracefully stopped")
 }
