@@ -32,3 +32,4 @@ go.work.sum
 # .vscode/
 .cursorrules
 snyk-macos-arm64
+*.txt
