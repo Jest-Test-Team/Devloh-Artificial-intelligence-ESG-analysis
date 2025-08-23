@@ -1,11 +1,12 @@
 package messaging
 
 import (
-	"devlog-ai/internal/api/models"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
+
+	"devlog-ai/internal/api/models"
 )
 
 // Topics

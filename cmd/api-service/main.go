@@ -1,8 +1,6 @@
 package main
 
 import (
-	"devlog-ai/internal/api/handlers"
-	"devlog-ai/internal/api/middleware"
 	"log"
 	"net/http"
 	"os"
@@ -16,29 +14,20 @@ func main() {
 		port = "8080"
 	}
 
-	// Initialize handlers
-	if err := handlers.InitLogHandlers(); err != nil {
-		log.Fatalf("Failed to initialize log handlers: %v", err)
-	}
-
 	// Create a new ServeMux
 	mux := http.NewServeMux()
 
 	// Register routes
-	mux.HandleFunc("/health", handlers.HealthHandler)
-	mux.HandleFunc("/api/v1/query", handlers.QueryHandler)
-	mux.HandleFunc("/api/v1/logs", handlers.IngestLogsHandler)
-
-	// Define public paths that don't require authentication
-	publicPaths := []string{
-		"/health",
-		// Add other public paths as needed
-	}
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"healthy"}`))
+	})
 
 	// Create a server with middleware
 	server := http.Server{
 		Addr:         ":" + port,
-		Handler:      applyMiddleware(mux, publicPaths),
+		Handler:      mux,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  120 * time.Second,
@@ -49,12 +38,4 @@ func main() {
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("Error starting server: %v", err)
 	}
-}
-
-func applyMiddleware(handler http.Handler, publicPaths []string) http.Handler {
-	// Apply middleware in reverse order
-	handler = middleware.CORSMiddleware(handler)
-	handler = middleware.LoggingMiddleware(handler)
-	handler = middleware.AuthMiddleware(publicPaths)(handler)
-	return handler
 }
