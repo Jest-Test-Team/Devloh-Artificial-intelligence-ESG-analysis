@@ -29,10 +29,16 @@ func main() {
 	mux.HandleFunc("/api/v1/query", handlers.QueryHandler)
 	mux.HandleFunc("/api/v1/logs", handlers.IngestLogsHandler)
 
+	// Define public paths that don't require authentication
+	publicPaths := []string{
+		"/health",
+		// Add other public paths as needed
+	}
+
 	// Create a server with middleware
 	server := http.Server{
 		Addr:         ":" + port,
-		Handler:      applyMiddleware(mux),
+		Handler:      applyMiddleware(mux, publicPaths),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  120 * time.Second,
@@ -45,9 +51,10 @@ func main() {
 	}
 }
 
-func applyMiddleware(handler http.Handler) http.Handler {
+func applyMiddleware(handler http.Handler, publicPaths []string) http.Handler {
 	// Apply middleware in reverse order
 	handler = middleware.CORSMiddleware(handler)
 	handler = middleware.LoggingMiddleware(handler)
+	handler = middleware.AuthMiddleware(publicPaths)(handler)
 	return handler
 }
