@@ -1,0 +1,27 @@
+# Build stage
+FROM golang:1.21-alpine AS builder
+
+WORKDIR /app
+
+COPY go.mod ./
+# Copy go.sum if it exists
+COPY go.sum* ./
+RUN go mod download
+
+COPY . .
+
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ingestor-service ./cmd/ingestor-service/main.go
+
+# Final stage
+FROM alpine:latest
+
+WORKDIR /app
+
+# Copy binary from build stage
+COPY --from=builder /app/ingestor-service .
+
+# Expose port
+EXPOSE 8081
+
+# Run the service
+CMD ["./ingestor-service"]
