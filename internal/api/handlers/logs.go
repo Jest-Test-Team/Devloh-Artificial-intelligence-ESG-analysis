@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"devlog-ai/internal/api/middleware"
 	"devlog-ai/internal/api/models"
 	"devlog-ai/internal/messaging"
 	"encoding/json"
@@ -31,13 +30,6 @@ func IngestLogsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get user from context
-	user, err := middleware.GetUserFromContext(r.Context())
-	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
 	// Read the request body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -55,16 +47,9 @@ func IngestLogsHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Validate the log batch
 	if logBatch.ProjectID == "" {
-		// If no project ID was provided, use the one from the user
-		logBatch.ProjectID = user.ProjectID
-	}
-	
-	// Ensure the user can only send logs to their own project
-	if logBatch.ProjectID != user.ProjectID {
-		http.Error(w, "Unauthorized: can only send logs to your own project", http.StatusForbidden)
+		http.Error(w, "ProjectID is required", http.StatusBadRequest)
 		return
 	}
-
 	if len(logBatch.Logs) == 0 {
 		http.Error(w, "Log batch cannot be empty", http.StatusBadRequest)
 		return
