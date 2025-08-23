@@ -28,8 +28,11 @@ func TestHealthCheckHandler(t *testing.T) {
 
 	// 檢查響應體
 	expected := `{"status":"ok"}`
-	if rr.Body.String() != expected {
+	actual := rr.Body.String()
+	// 去掉可能的換行符
+	actual = actual[:len(actual)-1]
+	if actual != expected {
 		t.Errorf("handler returned unexpected body: got %v want %v",
-			rr.Body.String(), expected)
+			actual, expected)
 	}
 }

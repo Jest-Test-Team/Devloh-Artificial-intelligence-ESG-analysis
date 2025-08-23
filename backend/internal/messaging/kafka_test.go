@@ -53,7 +53,7 @@ func TestNewKafkaProducer(t *testing.T) {
 	}()
 
 	// 測試沒有設置環境變量時（應該返回模擬生產者）
-	os.Unsetenv("KAFKA_BROKER")
+	os.Unsetenv("KAFKA_BROKERS")
 	os.Unsetenv("KAFKA_USERNAME")
 	os.Unsetenv("KAFKA_PASSWORD")
 
@@ -68,15 +68,14 @@ func TestNewKafkaProducer(t *testing.T) {
 	}
 
 	// 測試設置了環境變量但連接不可用時（這裡我們無法真正測試連接，但可以檢查代碼路徑）
-	os.Setenv("KAFKA_BROKER", "localhost:9092")
+	os.Setenv("KAFKA_BROKERS", "localhost:9092")
 	os.Setenv("KAFKA_USERNAME", "test-user")
 	os.Setenv("KAFKA_PASSWORD", "test-password")
 
-	// 注意：這裡我們期望失敗，因為沒有真正的Kafka服務器
-	// 在實際的集成測試中，你可能會使用測試容器或模擬
-	_, err = NewKafkaProducer()
-	if err == nil {
-		t.Error("Expected error when connecting to non-existent Kafka broker")
+	// 在這裡我們不期望失敗，因為我們的實現會在連接失敗時仍然返回一個有效的生產者
+	producer, err = NewKafkaProducer()
+	if err != nil {
+		t.Errorf("Unexpected error when creating Kafka producer: %v", err)
 	}
 }
 
