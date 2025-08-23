@@ -11,6 +11,8 @@ env:
   REGISTRY: docker.io
   DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
   DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+  # Default TLS key path for testing
+  TLS_KEY_PATH: /app/certs/server.key
 
 jobs:
   build:
