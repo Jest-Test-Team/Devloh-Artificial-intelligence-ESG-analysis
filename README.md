@@ -9,14 +9,40 @@
 
 ---
 
-## 核心功能 (Core Features)
+## 專案風險與緩解策略 (Project Risks & Mitigation Strategies)
 
-- **自然語言日誌查詢:** 透過 RAG (Retrieval-Augmented Generation) 技術，用口語化的方式查詢複雜的日誌數據。
-- **即時事件串流:** 透過 MQTT 實現日誌與 CI/CD 事件的即時推送 (Live Tailing)。
-- **主動式智慧診斷:** 由 Multi-agent 系統驅動，能主動監控、分析異常模式並發出警報。
-- **微服務架構:** 建立在 Kubernetes 之上，具備高可用性、高擴展性的雲原生架構。
-- **基礎設施即代碼 (IaC):** 使用 Terraform 統一管理所有雲端資源，實現可重複、可預測的部署。
-- **ESG 數據洞察:** (最終目標) 自動從應用程式日誌和雲端用量中分析、計算 ESG 相關指標（如碳足跡），輔助生成報告。
+本專案在追求技術創新的同時，充分認知到潛在的風險。以下是我們的核心風險評估及對應的緩解策略：
+
+### 1. 安全性與隱私 (Security & Privacy)
+* **風險:** 處理應用日誌、ESG 指標等敏感數據，可能面臨數據洩露；調用外部 LLM API 可能導致數據暴露給第三方；通訊過程可能被攔截。
+* **緩解策略:**
+    * **零信任架構:** 在階段 8 之後，考慮引入 **Istio Service Mesh** 來強制執行 K8s 叢集內部微服務間的 mTLS 加密通訊。
+    * **強化 CI/CD 安全性:** 在階段 3，除了 Snyk (SAST)，額外整合 **OWASP ZAP** 進行動態應用程式安全測試 (DAST)。
+    * **數據匿名化:** 在處理日誌與 ESG 數據時，實施 PII (個人可識別資訊) 掃描與匿名化處理。
+    * **合規性評估:** 在階段 10 啟動前，執行隱私影響評估 (PIA)，確保數據處理流程符合 GDPR 等法規要求。
+
+### 2. 市場定位與競爭 (Market Positioning & Competition)
+* **風險:** 從開發者工具到 ESG 服務的轉型跨度大；核心功能面臨 Datadog、Splunk 等成熟產品的競爭；ESG 洞察若不夠精準，難以獲取企業客戶信任；收費方案可能無法有效轉換用戶。
+* **緩解策略:**
+    * **差異化定位:** 專注於 **AI 輔助** 與 **自動化生成** 作為切入點，而非全功能的監控平台。強調「讓開發者輕鬆應對 ESG 數據需求」的獨特價值主張。
+    * **模型驗證:** 在階段 10，ESG 碳足跡計算模型需引入第三方數據或公開方法論進行交叉驗證，並在報告中明確標示計算的假設與限制。
+    * **靈活的商業模式:** 採用 Freemium (免費增值) 模型，免費版提供足夠有價值的核心日誌查詢功能以吸引用戶，付費版則專注於進階 AI 診斷、團隊協作及 ESG 功能。
+
+### 3. 開發藍圖執行 (Development Roadmap Execution)
+* **風險:** 缺乏明確時間表與資源規劃；階段性延遲可能引發連鎖效應；AI 與 ESG 部分技術實現路徑不清晰；免費 CI/CD 資源可能耗盡。
+* **緩解策略:**
+    * **敏捷開發與里程碑:** 將 10 大階段視為 Epic，每個子階段視為 Sprint 任務。在每個階段結束時設立明確的交付成果 (Definition of Done) 和審查點。
+    * **原型先行 (PoC):** 在階段 9，針對 Multi-agent 系統，使用 **LangGraph** 等框架進行原型測試，驗證其穩定性與效率後再全面開發。
+    * **強化文檔實踐:** 要求在每個階段結束時，使用 **Swagger/OpenAPI** 產生並更新 API 文檔，並使用 **Mermaid** 或類似工具繪製架構圖存檔。
+    * **資源監控:** 在階段 1-3 即建立「服務監控與備案計劃」，定期追蹤 OCI、GitHub Actions 等免費資源的用量，並準備備用方案（如切換 Vector DB 供應商、考慮自建開源方案）。
+
+### 4. 可擴展性與性能 (Scalability & Performance)
+* **風險:** 免費資源在面對高負載時可能出現性能瓶頸；外部 LLM API 的延遲與成本可能影響用戶體驗；大量數據計算可能導致延遲。
+* **緩解策略:**
+    * **性能測試:** 在階段 8 之後，引入 K6、JMeter 等工具進行壓力測試，找出潛在瓶頸。
+    * **非同步處理:** 對於 AI 分析、ESG 計算等耗時任務，全面採用 Kafka/RabbitMQ 進行非同步處理，避免阻塞核心 API。
+    * **成本與延遲優化:** 優先考慮快取常用查詢結果；探索使用更小、更快的模型或自託管開源 LLM 的可能性。
+    * **災難恢復:** 在階段 8，擴展 Grafana 警報規則；建立 Terraform 狀態檔的自動備份機制；在階段 10 前，模擬 K8s 節點或區域故障，演練災難恢復流程。
 
 ---
 
@@ -28,17 +54,20 @@
 | **後端** | Go (Golang) |
 | **訊息佇列** | RabbitMQ, Kafka |
 | **資料庫**| PostgreSQL (Relational), Vector DB (Non-relational), Redis (KV/Cache) |
-| **AI**| RAG, Multi-agent (使用 LangChain 框架) |
+| **AI**| RAG, Multi-agent (使用 LangChain, LangGraph 框架) |
 | **容器化 & 編排**| Docker, Kubernetes (K8s) |
+| **服務網格** | Istio (可選，用於強化安全) |
 | **CI/CD** | GitHub Actions, Harness (進階) |
 | **IaC & Config** | Terraform |
 | **可觀測性** | Prometheus, Loki, Grafana |
-| **安全性 & 金鑰** | Snyk, Doppler |
+| **安全性 & 金鑰** | Snyk, Doppler, OWASP ZAP |
 | **IoT/即時通訊** | MQTT |
 
 ---
 
 ## 10 階段開發藍圖 (10-Phase Development Roadmap)
+
+*此藍圖將在上述「風險與緩解策略」的指導下進行。*
 
 1.  **專案啟動與 IaC:** 使用 **Terraform (OCI Provider)** 建立 OKE (Oracle Kubernetes Engine) 叢集與 Supabase 資料庫。
 2.  **容器化與本地 K8s:** 撰寫第一個 Go 微服務，用 Docker 容器化並在本地 K8s 運行。
@@ -50,6 +79,11 @@
 8.  **平台可觀測性:** 部署 Prometheus, Loki, Grafana，監控平台自身的健康狀況。
 9.  **即時互動與進階智慧:** 引入 MQTT 實現即時串流，並建立主動式的 Multi-agent 系統。
 10. **商業化與 ESG 擴展:** 整合金流服務，並將平台能力擴展至 ESG 報告生成的垂直領域。
+
+---
+
+## 專案啟動 (Getting Started)
+*(此部分維持原樣)*
 
 ## 10 階段開發子項目 (10-Phase Development sub-items)
 
