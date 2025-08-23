@@ -3,22 +3,30 @@ package ingestor
 import (
 	"devlog-ai/internal/api/models"
 	"devlog-ai/internal/messaging"
+	"devlog-ai/internal/privacy"
 	"log"
 	"time"
 )
 
 // Service represents the ingestor service
 type Service struct {
-	kafkaProducer *messaging.KafkaProducer
+	kafkaProducer messaging.KafkaProducer // 改為介面類型，而非指針到介面
 	stopCh        chan struct{}
 	isRunning     bool
+	enablePII     bool // Flag to enable/disable PII anonymization
+}
+
+// ServiceConfig holds configuration options for the ingestor service
+type ServiceConfig struct {
+	EnablePII bool // Whether to enable PII anonymization
 }
 
 // NewService creates a new ingestor service
-func NewService(kafkaProducer *messaging.KafkaProducer) *Service {
+func NewService(kafkaProducer messaging.KafkaProducer, config ServiceConfig) *Service {
 	return &Service{
 		kafkaProducer: kafkaProducer,
 		stopCh:        make(chan struct{}),
+		enablePII:     config.EnablePII,
 	}
 }
 
@@ -72,10 +80,19 @@ func (s *Service) ProcessLogBatch(batch models.LogBatch) error {
 		if batch.Logs[i].Timestamp.IsZero() {
 			batch.Logs[i].Timestamp = time.Now()
 		}
-	}
 
-	// Apply PII anonymization
-	anonymizeBatch(&batch)
+		// Apply PII anonymization if enabled
+		if s.enablePII {
+			batch.Logs[i].Message = privacy.AnonymizePII(batch.Logs[i].Message)
+			
+			// Also anonymize metadata if present
+			if batch.Logs[i].Metadata != nil {
+				for key, value := range batch.Logs[i].Metadata {
+					batch.Logs[i].Metadata[key] = privacy.AnonymizePII(value)
+				}
+			}
+		}
+	}
 
 	// Send to Kafka
 	if err := s.kafkaProducer.SendLogBatch(batch); err != nil {
@@ -83,13 +100,4 @@ func (s *Service) ProcessLogBatch(batch models.LogBatch) error {
 	}
 
 	return nil
-}
-
-// anonymizeBatch applies PII anonymization to a log batch
-func anonymizeBatch(batch *models.LogBatch) {
-	// TODO: Implement PII detection and anonymization
-	// This would scan log messages and metadata for PII and anonymize it
-	
-	// For now, just log that we would do this
-	log.Printf("PII anonymization would be applied to %d logs", len(batch.Logs))
 }

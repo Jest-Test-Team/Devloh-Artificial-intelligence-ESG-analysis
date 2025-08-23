@@ -2,8 +2,9 @@ package apimodels
 
 // QueryRequest represents a natural language query from a user
 type QueryRequest struct {
-	Query     string `json:"query"`
-	ProjectID string `json:"project_id,omitempty"`
+	Query     string                 `json:"query"`
+	ProjectID string                 `json:"project_id,omitempty"`
+	Options   map[string]interface{} `json:"options,omitempty"`
 }
 
 // QueryResponse represents the response to a user query

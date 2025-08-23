@@ -9,7 +9,7 @@ import (
 	"net/http"
 )
 
-var kafkaProducer *messaging.KafkaProducer
+var kafkaProducer messaging.KafkaProducer // 改為介面類型，而非指針到介面
 
 // InitLogHandlers initializes dependencies for log handlers
 func InitLogHandlers() error {

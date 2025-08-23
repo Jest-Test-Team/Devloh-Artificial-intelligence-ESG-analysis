@@ -1,11 +1,16 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
+	"devlog-ai/internal/api/middleware"
+	"devlog-ai/internal/ingestor"
+	"devlog-ai/internal/messaging"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 )
 
@@ -16,8 +21,39 @@ func main() {
 		port = "8081"
 	}
 
+	// Check if PII anonymization should be enabled
+	enablePII := true
+	if val := os.Getenv("ENABLE_PII_ANONYMIZATION"); val != "" {
+		if b, err := strconv.ParseBool(val); err == nil {
+			enablePII = b
+		}
+	}
+
+	// Initialize Kafka producer
+	kafkaProducer, err := messaging.NewKafkaProducer()
+	if err != nil {
+		log.Fatalf("Failed to initialize Kafka producer: %v", err)
+	}
+	defer kafkaProducer.Close()
+
+	// Create and start the ingestor service with configuration
+	ingestorService := ingestor.NewService(kafkaProducer, ingestor.ServiceConfig{
+		EnablePII: enablePII,
+	})
+	
+	if err := ingestorService.Start(); err != nil {
+		log.Fatalf("Failed to start ingestor service: %v", err)
+	}
+	defer ingestorService.Stop()
+
 	// Create a new ServeMux
 	mux := http.NewServeMux()
+
+	// Define public paths that don't require authentication
+	publicPaths := []string{
+		"/health",
+		// Add other public paths as needed
+	}
 
 	// Register routes
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -25,11 +61,15 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"healthy"}`))
 	})
+	mux.HandleFunc("/api/v1/logs", ingestorService.LogHandler)
 
-	// Create a server with middleware
+	// Apply middleware
+	handler := middleware.LoggingMiddleware(middleware.CORSMiddleware(middleware.AuthMiddleware(publicPaths)(mux)))
+
+	// Create a server with TLS
 	server := http.Server{
 		Addr:         ":" + port,
-		Handler:      mux,
+		Handler:      handler,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  120 * time.Second,
@@ -55,17 +95,40 @@ func main() {
 		keyPath = filepath.Join("certs", "server.key")
 	}
 
-	// Check if TLS certificates exist
-	if _, err := os.Stat(certPath); os.IsNotExist(err) {
-		log.Printf("Warning: TLS certificate not found at %s, falling back to HTTP", certPath)
-		log.Printf("Starting Ingestor Service on HTTP port %s", port)
-		if err := server.ListenAndServe(); err != nil {
-			log.Fatalf("Error starting server: %v", err)
+	// Handle graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		// Check if TLS certificates exist
+		if _, err := os.Stat(certPath); os.IsNotExist(err) {
+			log.Printf("Warning: TLS certificate not found at %s, falling back to HTTP", certPath)
+			log.Printf("Starting Ingestor Service on HTTP port %s", port)
+			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("Error starting server: %v", err)
+				cancel()
+			}
+		} else {
+			log.Printf("Starting Ingestor Service on HTTPS port %s", port)
+			if err := server.ListenAndServeTLS(certPath, keyPath); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("Error starting server: %v", err)
+				cancel()
+			}
 		}
-	} else {
-		log.Printf("Starting Ingestor Service on HTTPS port %s", port)
-		if err := server.ListenAndServeTLS(certPath, keyPath); err != nil {
-			log.Fatalf("Error starting server: %v", err)
-		}
+	}()
+
+	// Wait for context cancellation
+	<-ctx.Done()
+	log.Print("Server shutting down...")
+
+	// Create a deadline for shutdown
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+
+	// Attempt graceful shutdown
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Fatalf("Server shutdown failed: %v", err)
 	}
+
+	log.Print("Server gracefully stopped")
 }
