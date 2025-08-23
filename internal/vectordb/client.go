@@ -10,10 +10,10 @@ import (
 type ClientType string
 
 const (
-	// PineconeClient is the client type for Pinecone
-	PineconeClient ClientType = "pinecone"
-	// WeaviateClient is the client type for Weaviate
-	WeaviateClient ClientType = "weaviate"
+	// PineconeClientType is the client type for Pinecone
+	PineconeClientType ClientType = "pinecone"
+	// WeaviateClientType is the client type for Weaviate
+	WeaviateClientType ClientType = "weaviate"
 )
 
 // Config represents the configuration for a vector database client
@@ -69,9 +69,9 @@ type QueryResult struct {
 // NewClient creates a new vector database client
 func NewClient(config Config) (Client, error) {
 	switch config.Type {
-	case PineconeClient:
+	case PineconeClientType:
 		return newPineconeClient(config)
-	case WeaviateClient:
+	case WeaviateClientType:
 		return newWeaviateClient(config)
 	default:
 		return nil, errors.New("unsupported vector database client type")
@@ -101,7 +101,7 @@ func GetConfigFromEnv() (Config, error) {
 	
 	// Type-specific config
 	switch config.Type {
-	case PineconeClient:
+	case PineconeClientType:
 		config.APIKey = os.Getenv("PINECONE_API_KEY")
 		if config.APIKey == "" {
 			return config, errors.New("PINECONE_API_KEY environment variable not set")
@@ -114,7 +114,7 @@ func GetConfigFromEnv() (Config, error) {
 		
 		config.Namespace = os.Getenv("PINECONE_NAMESPACE")
 	
-	case WeaviateClient:
+	case WeaviateClientType:
 		config.APIKey = os.Getenv("WEAVIATE_API_KEY")
 		if config.APIKey == "" {
 			return config, errors.New("WEAVIATE_API_KEY environment variable not set")

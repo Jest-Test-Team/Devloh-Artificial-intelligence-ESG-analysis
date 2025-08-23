@@ -7,7 +7,7 @@ import (
 	"net/http"
 
 	"devlog-ai/internal/api/models"
-	"devlog-ai/internal/middleware"
+	"devlog-ai/internal/api/middleware" // 修正導入路徑
 )
 
 // LogHandler handles incoming logs

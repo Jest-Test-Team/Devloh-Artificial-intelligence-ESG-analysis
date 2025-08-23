@@ -10,7 +10,7 @@ import (
 
 // Service represents the ingestor service
 type Service struct {
-	kafkaProducer *messaging.KafkaProducer
+	kafkaProducer messaging.KafkaProducer // 改為介面類型，而非指針到介面
 	stopCh        chan struct{}
 	isRunning     bool
 	enablePII     bool // Flag to enable/disable PII anonymization
@@ -22,7 +22,7 @@ type ServiceConfig struct {
 }
 
 // NewService creates a new ingestor service
-func NewService(kafkaProducer *messaging.KafkaProducer, config ServiceConfig) *Service {
+func NewService(kafkaProducer messaging.KafkaProducer, config ServiceConfig) *Service {
 	return &Service{
 		kafkaProducer: kafkaProducer,
 		stopCh:        make(chan struct{}),

@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-// PineconeClient is a client for the Pinecone vector database
-type PineconeClient struct {
+// pineconeClient is a client for the Pinecone vector database
+type pineconeClient struct {
 	config     Config
 	httpClient *http.Client
 	apiURL     string
@@ -55,7 +55,7 @@ type PineconeDeleteRequest struct {
 }
 
 // newPineconeClient creates a new Pinecone client
-func newPineconeClient(config Config) (*PineconeClient, error) {
+func newPineconeClient(config Config) (Client, error) {
 	if config.APIKey == "" {
 		return nil, fmt.Errorf("Pinecone API key is required")
 	}
@@ -69,7 +69,7 @@ func newPineconeClient(config Config) (*PineconeClient, error) {
 	apiURL := fmt.Sprintf("https://%s-%s.svc.%s.pinecone.io", 
 		config.IndexName, config.IndexName, config.Environment)
 
-	return &PineconeClient{
+	return &pineconeClient{
 		config:     config,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 		apiURL:     apiURL,
@@ -77,7 +77,7 @@ func newPineconeClient(config Config) (*PineconeClient, error) {
 }
 
 // Connect implements the Client interface
-func (c *PineconeClient) Connect() error {
+func (c *pineconeClient) Connect() error {
 	// Test the connection by making a simple request
 	url := fmt.Sprintf("%s/describe_index_stats", c.apiURL)
 	req, err := http.NewRequest("GET", url, nil)
@@ -103,13 +103,13 @@ func (c *PineconeClient) Connect() error {
 }
 
 // Close implements the Client interface
-func (c *PineconeClient) Close() error {
+func (c *pineconeClient) Close() error {
 	// Nothing to close for HTTP client
 	return nil
 }
 
 // UpsertVector implements the Client interface
-func (c *PineconeClient) UpsertVector(id string, vector []float32, metadata map[string]interface{}) error {
+func (c *pineconeClient) UpsertVector(id string, vector []float32, metadata map[string]interface{}) error {
 	vectors := []PineconeVector{
 		{
 			ID:       id,
@@ -128,7 +128,7 @@ func (c *PineconeClient) UpsertVector(id string, vector []float32, metadata map[
 }
 
 // UpsertVectors implements the Client interface
-func (c *PineconeClient) UpsertVectors(vectors []VectorEntry) error {
+func (c *pineconeClient) UpsertVectors(vectors []VectorEntry) error {
 	// Convert to Pinecone vectors
 	pineconeVectors := make([]PineconeVector, len(vectors))
 	for i, v := range vectors {
@@ -175,7 +175,7 @@ func (c *PineconeClient) UpsertVectors(vectors []VectorEntry) error {
 }
 
 // QueryNearest implements the Client interface
-func (c *PineconeClient) QueryNearest(vector []float32, limit int) ([]QueryResult, error) {
+func (c *pineconeClient) QueryNearest(vector []float32, limit int) ([]QueryResult, error) {
 	// Create the request
 	requestData := PineconeQueryRequest{
 		Vector:    vector,
@@ -229,12 +229,12 @@ func (c *PineconeClient) QueryNearest(vector []float32, limit int) ([]QueryResul
 }
 
 // DeleteVector implements the Client interface
-func (c *PineconeClient) DeleteVector(id string) error {
+func (c *pineconeClient) DeleteVector(id string) error {
 	return c.DeleteVectors([]string{id})
 }
 
 // DeleteVectors implements the Client interface
-func (c *PineconeClient) DeleteVectors(ids []string) error {
+func (c *pineconeClient) DeleteVectors(ids []string) error {
 	// Create the request
 	requestData := PineconeDeleteRequest{
 		IDs:       ids,

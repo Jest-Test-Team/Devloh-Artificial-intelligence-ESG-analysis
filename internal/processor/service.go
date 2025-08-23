@@ -13,7 +13,7 @@ import (
 
 // Service represents the processor service
 type Service struct {
-	kafkaConsumer  *messaging.KafkaConsumer
+	kafkaConsumer  messaging.KafkaConsumer // 改為介面類型，而非指針到介面
 	embeddingClient embedding.Client
 	vectorDB       vectordb.Client
 	stopCh         chan struct{}
@@ -26,7 +26,7 @@ type ServiceConfig struct {
 }
 
 // NewService creates a new processor service
-func NewService(kafkaConsumer *messaging.KafkaConsumer, embeddingClient embedding.Client, 
+func NewService(kafkaConsumer messaging.KafkaConsumer, embeddingClient embedding.Client, 
 	vectorDB vectordb.Client, config ServiceConfig) *Service {
 	return &Service{
 		kafkaConsumer:   kafkaConsumer,

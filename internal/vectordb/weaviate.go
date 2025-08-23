@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-// WeaviateClient is a client for the Weaviate vector database
-type WeaviateClient struct {
+// weaviateClient is a client for the Weaviate vector database
+type weaviateClient struct {
 	config     Config
 	httpClient *http.Client
 }
@@ -55,7 +55,7 @@ type WeaviateGraphQLResponse struct {
 }
 
 // newWeaviateClient creates a new Weaviate client
-func newWeaviateClient(config Config) (*WeaviateClient, error) {
+func newWeaviateClient(config Config) (Client, error) {
 	if config.APIKey == "" {
 		return nil, fmt.Errorf("Weaviate API key is required")
 	}
@@ -63,14 +63,14 @@ func newWeaviateClient(config Config) (*WeaviateClient, error) {
 		return nil, fmt.Errorf("Weaviate URL is required")
 	}
 
-	return &WeaviateClient{
+	return &weaviateClient{
 		config:     config,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}, nil
 }
 
 // Connect implements the Client interface
-func (c *WeaviateClient) Connect() error {
+func (c *weaviateClient) Connect() error {
 	// Check if the class exists, create it if it doesn't
 	url := fmt.Sprintf("%s/v1/schema", c.config.URL)
 	req, err := http.NewRequest("GET", url, nil)
@@ -98,13 +98,13 @@ func (c *WeaviateClient) Connect() error {
 }
 
 // Close implements the Client interface
-func (c *WeaviateClient) Close() error {
+func (c *weaviateClient) Close() error {
 	// Nothing to close for HTTP client
 	return nil
 }
 
 // UpsertVector implements the Client interface
-func (c *WeaviateClient) UpsertVector(id string, vector []float32, metadata map[string]interface{}) error {
+func (c *weaviateClient) UpsertVector(id string, vector []float32, metadata map[string]interface{}) error {
 	return c.UpsertVectors([]VectorEntry{
 		{
 			ID:       id,
@@ -115,7 +115,7 @@ func (c *WeaviateClient) UpsertVector(id string, vector []float32, metadata map[
 }
 
 // UpsertVectors implements the Client interface
-func (c *WeaviateClient) UpsertVectors(vectors []VectorEntry) error {
+func (c *weaviateClient) UpsertVectors(vectors []VectorEntry) error {
 	// Create the objects
 	objects := make([]map[string]interface{}, len(vectors))
 	for i, v := range vectors {
@@ -162,7 +162,7 @@ func (c *WeaviateClient) UpsertVectors(vectors []VectorEntry) error {
 }
 
 // QueryNearest implements the Client interface
-func (c *WeaviateClient) QueryNearest(vector []float32, limit int) ([]QueryResult, error) {
+func (c *weaviateClient) QueryNearest(vector []float32, limit int) ([]QueryResult, error) {
 	// Create the GraphQL query
 	vectorJSON, err := json.Marshal(vector)
 	if err != nil {
@@ -239,7 +239,7 @@ func (c *WeaviateClient) QueryNearest(vector []float32, limit int) ([]QueryResul
 }
 
 // DeleteVector implements the Client interface
-func (c *WeaviateClient) DeleteVector(id string) error {
+func (c *weaviateClient) DeleteVector(id string) error {
 	url := fmt.Sprintf("%s/v1/objects/%s", c.config.URL, id)
 	req, err := http.NewRequest("DELETE", url, nil)
 	if err != nil {
@@ -263,7 +263,7 @@ func (c *WeaviateClient) DeleteVector(id string) error {
 }
 
 // DeleteVectors implements the Client interface
-func (c *WeaviateClient) DeleteVectors(ids []string) error {
+func (c *weaviateClient) DeleteVectors(ids []string) error {
 	for _, id := range ids {
 		if err := c.DeleteVector(id); err != nil {
 			return err
