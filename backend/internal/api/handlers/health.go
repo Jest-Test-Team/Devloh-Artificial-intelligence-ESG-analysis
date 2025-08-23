@@ -3,7 +3,6 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
-	"time"
 )
 
 // HealthCheckHandler handles health check requests

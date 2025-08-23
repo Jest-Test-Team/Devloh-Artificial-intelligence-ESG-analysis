@@ -2,174 +2,241 @@ package vectordb
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 )
 
-// WeaviateClient provides access to Weaviate vector database
+// WeaviateClient 實現了 VectorDBClient 接口，用於與 Weaviate 向量數據庫交互
 type WeaviateClient struct {
-	baseURL string
-	client  *http.Client
+	endpoint   string
+	apiKey     string
+	className  string
+	httpClient *http.Client
 }
 
-// WeaviateObject represents an object in Weaviate
-type WeaviateObject struct {
-	Class      string                 `json:"class"`
-	ID         string                 `json:"id,omitempty"`
-	Properties map[string]interface{} `json:"properties"`
-	Vector     []float64              `json:"vector,omitempty"`
-}
-
-// WeaviateQuery represents a query to Weaviate
-type WeaviateQuery struct {
-	Class      string                 `json:"class"`
-	Properties []string               `json:"properties"`
-	NearVector map[string]interface{} `json:"nearVector"`
-	Limit      int                    `json:"limit"`
-}
-
-// WeaviateResponse represents a response from Weaviate
-type WeaviateResponse struct {
-	Data struct {
-		Get map[string][]WeaviateObject `json:"Get"`
-	} `json:"data"`
-}
-
-// NewWeaviateClient creates a new Weaviate client
-func NewWeaviateClient(baseURL string) *WeaviateClient {
+// NewWeaviateClient 創建一個新的 Weaviate 客戶端
+func NewWeaviateClient(endpoint, apiKey, className string) *WeaviateClient {
 	return &WeaviateClient{
-		baseURL: baseURL,
-		client: &http.Client{
+		endpoint:  endpoint,
+		apiKey:    apiKey,
+		className: className,
+		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
 	}
 }
 
-// Upsert upserts objects to Weaviate
-func (w *WeaviateClient) Upsert(ctx context.Context, collection string, vectors []Vector) error {
-	for _, v := range vectors {
-		object := WeaviateObject{
-			Class: collection,
-			ID:    v.ID,
-			Properties: map[string]interface{}{
-				"id":       v.ID,
-				"metadata": v.Metadata,
-			},
-			Vector: v.Vector,
-		}
-
-		requestBody, err := json.Marshal(object)
-		if err != nil {
-			return fmt.Errorf("failed to marshal object: %w", err)
-		}
-
-		url := fmt.Sprintf("%s/v1/objects", w.baseURL)
-		req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(requestBody))
-		if err != nil {
-			return fmt.Errorf("failed to create request: %w", err)
-		}
-
-		req.Header.Set("Content-Type", "application/json")
-
-		resp, err := w.client.Do(req)
-		if err != nil {
-			return fmt.Errorf("failed to send request: %w", err)
-		}
-		resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-			return fmt.Errorf("API request failed with status: %d", resp.StatusCode)
-		}
+// Store 將向量存儲到 Weaviate 中
+func (c *WeaviateClient) Store(id string, vector []float32, metadata map[string]interface{}) error {
+	// 構建 Weaviate API 請求
+	url := fmt.Sprintf("%s/v1/objects", c.endpoint)
+	
+	// 構建請求體
+	requestBody := map[string]interface{}{
+		"class": c.className,
+		"id":    id,
+		"properties": metadata,
+		"vector": vector,
 	}
-
+	
+	jsonData, err := json.Marshal(requestBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request body: %w", err)
+	}
+	
+	// 創建請求
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	
+	// 設置標頭
+	req.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.apiKey))
+	}
+	
+	// 發送請求
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	// 檢查響應
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		var errorResponse map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&errorResponse); err != nil {
+			return fmt.Errorf("failed to decode error response: %w", err)
+		}
+		return fmt.Errorf("weaviate API error: %v", errorResponse)
+	}
+	
 	return nil
 }
 
-// Search searches for similar objects in Weaviate
-func (w *WeaviateClient) Search(ctx context.Context, collection string, query Vector, limit int) ([]SearchResult, error) {
-	queryObj := WeaviateQuery{
-		Class: collection,
-		Properties: []string{
-			"id",
-			"metadata",
-		},
-		NearVector: map[string]interface{}{
-			"vector": query.Vector,
-		},
-		Limit: limit,
+// Query 查詢與給定向量最相似的向量
+func (c *WeaviateClient) Query(vector []float32, limit int) ([]QueryResult, error) {
+	// 構建 Weaviate API 請求
+	url := fmt.Sprintf("%s/v1/graphql", c.endpoint)
+	
+	// 構建 GraphQL 查詢
+	graphqlQuery := fmt.Sprintf(`
+	{
+		Get {
+			%s(
+				nearVector: {
+					vector: %v,
+					certainty: 0.7
+				},
+				limit: %d
+			) {
+				_additional {
+					id
+					certainty
+				}
+				%s
+			}
+		}
 	}
-
-	requestBody, err := json.Marshal(map[string]interface{}{
-		"query": queryObj,
-	})
+	`, c.className, vectorToString(vector), limit, buildPropertiesQuery(getPropertyNames(map[string]interface{}{})))
+	
+	// 構建請求體
+	requestBody := map[string]interface{}{
+		"query": graphqlQuery,
+	}
+	
+	jsonData, err := json.Marshal(requestBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal query: %w", err)
+		return nil, fmt.Errorf("failed to marshal request body: %w", err)
 	}
-
-	url := fmt.Sprintf("%s/v1/graphql", w.baseURL)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(requestBody))
+	
+	// 創建請求
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-
+	
+	// 設置標頭
 	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := w.client.Do(req)
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.apiKey))
+	}
+	
+	// 發送請求
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
-
+	
+	// 檢查響應
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API request failed with status: %d", resp.StatusCode)
+		var errorResponse map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&errorResponse); err != nil {
+			return nil, fmt.Errorf("failed to decode error response: %w", err)
+		}
+		return nil, fmt.Errorf("weaviate API error: %v", errorResponse)
 	}
-
-	var response WeaviateResponse
+	
+	// 解析響應
+	var response struct {
+		Data struct {
+			Get map[string][]struct {
+				Additional struct {
+					ID        string  `json:"id"`
+					Certainty float32 `json:"certainty"`
+				} `json:"_additional"`
+				Properties map[string]interface{} `json:"-"`
+			} `json:"Get"`
+		} `json:"data"`
+	}
+	
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
-
-	objects := response.Data.Get[collection]
-	results := make([]SearchResult, len(objects))
-	for i, obj := range objects {
-		results[i] = SearchResult{
-			ID:       obj.ID,
-			Score:    0.0, // Weaviate doesn't provide scores in this format
-			Metadata: obj.Properties,
-		}
+	
+	// 轉換為查詢結果
+	results := []QueryResult{}
+	for _, item := range response.Data.Get[c.className] {
+		results = append(results, QueryResult{
+			ID:       item.Additional.ID,
+			Score:    item.Additional.Certainty,
+			Metadata: item.Properties,
+		})
 	}
-
+	
 	return results, nil
 }
 
-// Delete deletes objects from Weaviate
-func (w *WeaviateClient) Delete(ctx context.Context, collection string, ids []string) error {
-	for _, id := range ids {
-		url := fmt.Sprintf("%s/v1/objects/%s/%s", w.baseURL, collection, id)
-		req, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
-		if err != nil {
-			return fmt.Errorf("failed to create request: %w", err)
-		}
-
-		resp, err := w.client.Do(req)
-		if err != nil {
-			return fmt.Errorf("failed to send request: %w", err)
-		}
-		resp.Body.Close()
-
-		if resp.StatusCode != http.StatusNoContent {
-			return fmt.Errorf("delete request failed with status: %d", resp.StatusCode)
-		}
+// Delete 從 Weaviate 中刪除向量
+func (c *WeaviateClient) Delete(id string) error {
+	// 構建 Weaviate API 請求
+	url := fmt.Sprintf("%s/v1/objects/%s", c.endpoint, id)
+	
+	// 創建請求
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
 	}
-
+	
+	// 設置標頭
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.apiKey))
+	}
+	
+	// 發送請求
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	// 檢查響應
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		var errorResponse map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&errorResponse); err != nil {
+			return fmt.Errorf("failed to decode error response: %w", err)
+		}
+		return fmt.Errorf("weaviate API error: %v", errorResponse)
+	}
+	
 	return nil
 }
 
-// Close closes the Weaviate client
-func (w *WeaviateClient) Close() error {
-	// No resources to close for HTTP client
-	return nil
+// vectorToString 將向量轉換為字符串表示
+func vectorToString(vector []float32) string {
+	result := "["
+	for i, v := range vector {
+		if i > 0 {
+			result += ", "
+		}
+		result += fmt.Sprintf("%f", v)
+	}
+	result += "]"
+	return result
+}
+
+// getPropertyNames 獲取元數據的屬性名稱
+func getPropertyNames(metadata map[string]interface{}) []string {
+	names := make([]string, 0, len(metadata))
+	for name := range metadata {
+		names = append(names, name)
+	}
+	return names
+}
+
+// buildPropertiesQuery 構建 GraphQL 屬性查詢
+func buildPropertiesQuery(properties []string) string {
+	if len(properties) == 0 {
+		return "content timestamp source"
+	}
+	
+	result := ""
+	for _, prop := range properties {
+		result += prop + " "
+	}
+	return result
 }

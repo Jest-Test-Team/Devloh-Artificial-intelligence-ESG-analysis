@@ -2,94 +2,79 @@ package rag
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 )
 
-// CloudflareClient provides access to Cloudflare AI services
-type CloudflareClient struct {
-	apiToken string
-	baseURL  string
-	client   *http.Client
+// CloudflareClient 定義了與 Cloudflare RAG 函數交互的接口
+type CloudflareClient interface {
+	Query(query string, options map[string]interface{}) (string, error)
 }
 
-// CloudflareAIRequest represents a request to Cloudflare AI
-type CloudflareAIRequest struct {
-	Prompt      string                 `json:"prompt"`
-	Model       string                 `json:"model"`
-	MaxTokens   int                    `json:"max_tokens,omitempty"`
-	Temperature float64                `json:"temperature,omitempty"`
-	Stream      bool                   `json:"stream,omitempty"`
-	Options     map[string]interface{} `json:"options,omitempty"`
+// cloudflareClient 實現了 CloudflareClient 接口，用於實際的 Cloudflare API 調用
+type cloudflareClient struct {
+	apiEndpoint string
+	apiKey      string
+	httpClient  *http.Client
 }
 
-// CloudflareAIResponse represents a response from Cloudflare AI
-type CloudflareAIResponse struct {
-	Response string `json:"response"`
-	Model    string `json:"model"`
-	Usage    struct {
-		PromptTokens   int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-		TotalTokens    int `json:"total_tokens"`
-	} `json:"usage"`
-}
-
-// NewCloudflareClient creates a new Cloudflare client
-func NewCloudflareClient(apiToken string) *CloudflareClient {
-	return &CloudflareClient{
-		apiToken: apiToken,
-		baseURL:  "https://api.cloudflare.com/client/v4/ai/run",
-		client: &http.Client{
+// NewCloudflareClient 創建一個新的 Cloudflare RAG 客戶端
+func NewCloudflareClient(apiEndpoint, apiKey string) CloudflareClient {
+	return &cloudflareClient{
+		apiEndpoint: apiEndpoint,
+		apiKey:      apiKey,
+		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
 	}
 }
 
-// GenerateText generates text using Cloudflare AI
-func (c *CloudflareClient) GenerateText(ctx context.Context, prompt string, model string) (string, error) {
-	request := CloudflareAIRequest{
-		Prompt:      prompt,
-		Model:       model,
-		MaxTokens:   1000,
-		Temperature: 0.7,
+// Query 向 Cloudflare RAG 函數發送查詢並返回響應
+func (c *cloudflareClient) Query(query string, options map[string]interface{}) (string, error) {
+	requestBody := map[string]interface{}{
+		"query": query,
+	}
+	for k, v := range options {
+		requestBody[k] = v
 	}
 
-	requestBody, err := json.Marshal(request)
+	jsonBody, err := json.Marshal(requestBody)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal request: %w", err)
+		return "", fmt.Errorf("failed to marshal request body: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL, bytes.NewBuffer(requestBody))
+	req, err := http.NewRequest("POST", c.apiEndpoint, bytes.NewBuffer(jsonBody))
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+		return "", fmt.Errorf("failed to create HTTP request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+c.apiToken)
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.apiKey))
 
-	resp, err := c.client.Do(req)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("failed to send request: %w", err)
+		return "", fmt.Errorf("failed to send HTTP request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("API request failed with status: %d", resp.StatusCode)
+		return "", fmt.Errorf("Cloudflare API returned non-OK status: %s", resp.Status)
 	}
 
-	var response CloudflareAIResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return "", fmt.Errorf("failed to decode response: %w", err)
+	var responseBody map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&responseBody); err != nil {
+		return "", fmt.Errorf("failed to decode response body: %w", err)
 	}
 
-	return response.Response, nil
-}
+	// 假設 RAG 響應在 "response" 或 "result" 字段中
+	if result, ok := responseBody["response"].(string); ok {
+		return result, nil
+	}
+	if result, ok := responseBody["result"].(string); ok {
+		return result, nil
+	}
 
-// Close closes the Cloudflare client
-func (c *CloudflareClient) Close() error {
-	// No resources to close for HTTP client
-	return nil
+	return "", fmt.Errorf("unexpected response format from Cloudflare RAG API")
 }

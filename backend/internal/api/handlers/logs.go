@@ -1,138 +1,89 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
-	"time"
 
+	"devlog-ai/internal/api/middleware"
 	"devlog-ai/internal/api/models"
 )
 
-// KafkaProducer interface for producing messages to Kafka
+// KafkaProducer 是一個 Kafka 生產者的接口
 type KafkaProducer interface {
 	ProduceMessage(topic string, key string, value []byte) error
 	SendLogBatch(logs []models.LogEntry) error
 	Close() error
 }
 
-// IngestLogHandler handles log ingestion requests
-func IngestLogHandler(producer KafkaProducer) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+// IngestLogHandler 處理單條日誌的攝取
+func IngestLogHandler(producer KafkaProducer) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
+		// 解析請求體
 		var logEntry models.LogEntry
 		if err := json.NewDecoder(r.Body).Decode(&logEntry); err != nil {
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
 			return
 		}
 
-		// Set user ID from context if available
-		if userID := getUserIDFromContext(r.Context()); userID != "" {
-			logEntry.UserID = userID
-		}
+		// 從上下文中獲取用戶ID
+		userID := middleware.GetUserID(r.Context())
+		logEntry.UserID = userID
 
-		// Set timestamps
-		now := time.Now()
-		logEntry.CreatedAt = now
-		logEntry.UpdatedAt = now
-
-		// Generate ID if not provided
-		if logEntry.ID == "" {
-			logEntry.ID = generateLogID()
-		}
-
-		// Send to Kafka
-		if err := producer.ProduceMessage("logs", logEntry.ID, mustMarshal(logEntry)); err != nil {
-			http.Error(w, "Failed to process log", http.StatusInternalServerError)
+		// 將日誌序列化為JSON
+		logBytes, err := json.Marshal(logEntry)
+		if err != nil {
+			http.Error(w, "Failed to marshal log entry", http.StatusInternalServerError)
 			return
 		}
 
+		// 發送到Kafka
+		if err := producer.ProduceMessage("logs", logEntry.Service, logBytes); err != nil {
+			http.Error(w, "Failed to produce message", http.StatusInternalServerError)
+			return
+		}
+
+		// 返回成功響應
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{
-			"status":  "success",
-			"message": "Log ingested successfully",
-			"id":      logEntry.ID,
-		})
-	}
+		w.Write([]byte(`{"status":"ok"}`))
+	})
 }
 
-// getUserIDFromContext extracts user ID from context
-func getUserIDFromContext(ctx context.Context) string {
-	if userID, ok := ctx.Value("user_id").(string); ok {
-		return userID
-	}
-	return ""
-}
-
-// generateLogID generates a unique log ID
-func generateLogID() string {
-	return time.Now().Format("20060102150405") + "-" + randomString(8)
-}
-
-// randomString generates a random string of specified length
-func randomString(length int) string {
-	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	b := make([]byte, length)
-	for i := range b {
-		b[i] = charset[time.Now().UnixNano()%int64(len(charset))]
-	}
-	return string(b)
-}
-
-// mustMarshal marshals JSON or panics (for simplicity in this example)
-func mustMarshal(v interface{}) []byte {
-	data, err := json.Marshal(v)
-	if err != nil {
-		panic(err)
-	}
-	return data
-}
-
-// IngestLogBatchHandler handles batch log ingestion requests
-func IngestLogBatchHandler(producer KafkaProducer) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+// IngestLogBatchHandler 處理批量日誌的攝取
+func IngestLogBatchHandler(producer KafkaProducer) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
-		var logs []models.LogEntry
-		if err := json.NewDecoder(r.Body).Decode(&logs); err != nil {
+		// 解析請求體
+		var logEntries []models.LogEntry
+		if err := json.NewDecoder(r.Body).Decode(&logEntries); err != nil {
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
 			return
 		}
 
-		// Set user ID from context if available
-		if userID := getUserIDFromContext(r.Context()); userID != "" {
-			for i := range logs {
-				logs[i].UserID = userID
-			}
+		// 從上下文中獲取用戶ID
+		userID := middleware.GetUserID(r.Context())
+
+		// 設置每條日誌的用戶ID
+		for i := range logEntries {
+			logEntries[i].UserID = userID
 		}
 
-		// Set timestamps and generate IDs
-		now := time.Now()
-		for i := range logs {
-			if logs[i].ID == "" {
-				logs[i].ID = generateLogID()
-			}
-			logs[i].CreatedAt = now
-			logs[i].UpdatedAt = now
-		}
-
-		// Send to Kafka
-		if err := producer.SendLogBatch(logs); err != nil {
-			http.Error(w, "Failed to process log batch", http.StatusInternalServerError)
+		// 發送到Kafka
+		if err := producer.SendLogBatch(logEntries); err != nil {
+			http.Error(w, "Failed to send log batch", http.StatusInternalServerError)
 			return
 		}
 
+		// 返回成功響應
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{
-			"status":  "success",
-			"message": "Log batch ingested successfully",
-		})
-	}
+		w.Write([]byte(`{"status":"ok"}`))
+	})
 }

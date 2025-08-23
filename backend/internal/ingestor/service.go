@@ -22,6 +22,11 @@ func NewIngestorService() *IngestorService {
 	}
 }
 
+// NewService creates a new ingestor service instance (alias for NewIngestorService for backward compatibility)
+func NewService() *IngestorService {
+	return NewIngestorService()
+}
+
 // IngestLog processes and ingests a single log entry
 func (i *IngestorService) IngestLog(ctx context.Context, logEntry models.LogEntry) error {
 	// Anonymize PII in the log entry
@@ -49,7 +54,7 @@ func (i *IngestorService) anonymizeLogEntry(logEntry models.LogEntry) models.Log
 
 	// Anonymize message if it contains PII
 	if i.piiDetector.IsPII(logEntry.Message) {
-		anonymized.Message = i.piiDetector.DetectAndAnonymize(logEntry.Message)
+		anonymized.Message, _ = i.piiDetector.DetectAndAnonymize(logEntry.Message)
 	}
 
 	// Anonymize metadata if it contains PII

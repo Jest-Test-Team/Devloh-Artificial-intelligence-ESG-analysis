@@ -1,86 +1,68 @@
 package vectordb
 
 import (
-	"fmt"
+	"errors"
 	"os"
-	"sync"
 )
 
-// Client 是向量數據庫的接口
-type Client interface {
-	// Connect 連接到向量數據庫
-	Connect() error
+// VectorDBClient 是向量數據庫客戶端的接口
+type VectorDBClient interface {
+	// Store 將嵌入向量存儲到向量數據庫中
+	Store(id string, vector []float32, metadata map[string]interface{}) error
 	
-	// Close 關閉到向量數據庫的連接
-	Close() error
-	
-	// Upsert 插入或更新向量
-	Upsert(id string, vector []float32, metadata map[string]interface{}) error
-	
-	// Query 查詢最近的向量
+	// Query 查詢與給定向量最相似的向量
 	Query(vector []float32, limit int) ([]QueryResult, error)
 	
-	// Delete 刪除向量
+	// Delete 從數據庫中刪除向量
 	Delete(id string) error
 }
 
 // QueryResult 表示查詢結果
 type QueryResult struct {
-	ID       string
-	Score    float32
-	Metadata map[string]interface{}
+	ID       string                 // 向量的唯一標識符
+	Score    float32                // 相似度分數
+	Metadata map[string]interface{} // 與向量相關的元數據
 }
 
 // ClientType 表示向量數據庫客戶端的類型
 type ClientType string
 
 const (
-	// PineconeClientType 是 Pinecone 客戶端的類型
+	// PineconeClientType 是 Pinecone 向量數據庫客戶端的類型
 	PineconeClientType ClientType = "pinecone"
-	
-	// WeaviateClientType 是 Weaviate 客戶端的類型
+	// WeaviateClientType 是 Weaviate 向量數據庫客戶端的類型
 	WeaviateClientType ClientType = "weaviate"
-	
-	// MockClientType 是用於測試的模擬客戶端的類型
+	// MockClientType 是用於測試的模擬向量數據庫客戶端的類型
 	MockClientType ClientType = "mock"
 )
 
 // NewVectorDBClient 創建一個新的向量數據庫客戶端
-func NewVectorDBClient() (Client, error) {
-	// 從環境變量獲取向量數據庫提供者
-	provider := os.Getenv("VECTOR_DB_PROVIDER")
+func NewVectorDBClient() (VectorDBClient, error) {
+	// 從環境變量獲取向量數據庫類型
+	dbType := os.Getenv("VECTOR_DB_TYPE")
 	
-	switch ClientType(provider) {
+	switch ClientType(dbType) {
 	case PineconeClientType:
 		apiKey := os.Getenv("PINECONE_API_KEY")
-		if apiKey == "" {
-			return nil, fmt.Errorf("PINECONE_API_KEY is required for Pinecone vector DB")
-		}
-		
 		environment := os.Getenv("PINECONE_ENVIRONMENT")
-		if environment == "" {
-			return nil, fmt.Errorf("PINECONE_ENVIRONMENT is required for Pinecone vector DB")
-		}
-		
 		indexName := os.Getenv("PINECONE_INDEX_NAME")
-		if indexName == "" {
-			indexName = "devlog-ai"
+		
+		if apiKey == "" || environment == "" || indexName == "" {
+			return nil, errors.New("PINECONE_API_KEY, PINECONE_ENVIRONMENT, and PINECONE_INDEX_NAME are required for Pinecone")
 		}
 		
 		return NewPineconeClient(apiKey, environment, indexName), nil
 		
 	case WeaviateClientType:
-		url := os.Getenv("WEAVIATE_URL")
-		if url == "" {
-			return nil, fmt.Errorf("WEAVIATE_URL is required for Weaviate vector DB")
-		}
-		
+		endpoint := os.Getenv("WEAVIATE_ENDPOINT")
 		apiKey := os.Getenv("WEAVIATE_API_KEY")
-		if apiKey == "" {
-			return nil, fmt.Errorf("WEAVIATE_API_KEY is required for Weaviate vector DB")
+		className := os.Getenv("WEAVIATE_CLASS_NAME")
+		
+		if endpoint == "" || className == "" {
+			return nil, errors.New("WEAVIATE_ENDPOINT and WEAVIATE_CLASS_NAME are required for Weaviate")
 		}
 		
-		return NewWeaviateClient(url, apiKey), nil
+		return NewWeaviateClient(endpoint, apiKey, className), nil
 		
 	default:
 		// 默認使用模擬客戶端
@@ -88,171 +70,94 @@ func NewVectorDBClient() (Client, error) {
 	}
 }
 
-// PineconeClient 是 Pinecone 向量數據庫的客戶端
-type PineconeClient struct {
-	apiKey      string
-	environment string
-	indexName   string
-}
-
-// NewPineconeClient 創建一個新的 Pinecone 客戶端
-func NewPineconeClient(apiKey, environment, indexName string) *PineconeClient {
-	return &PineconeClient{
-		apiKey:      apiKey,
-		environment: environment,
-		indexName:   indexName,
+// NewMockVectorDBClient 創建一個新的模擬向量數據庫客戶端
+func NewMockVectorDBClient() VectorDBClient {
+	return &MockVectorDBClient{
+		vectors: make(map[string]mockVectorEntry),
 	}
-}
-
-// Connect 連接到 Pinecone
-func (c *PineconeClient) Connect() error {
-	// 在實際實現中，這裡可能會初始化連接池或驗證憑據
-	return nil
-}
-
-// Close 關閉到 Pinecone 的連接
-func (c *PineconeClient) Close() error {
-	// 在實際實現中，這裡可能會釋放資源
-	return nil
-}
-
-// Upsert 插入或更新 Pinecone 中的向量
-func (c *PineconeClient) Upsert(id string, vector []float32, metadata map[string]interface{}) error {
-	// 在實際實現中，這裡應該調用 Pinecone 的 API
-	return nil
-}
-
-// Query 查詢 Pinecone 中最近的向量
-func (c *PineconeClient) Query(vector []float32, limit int) ([]QueryResult, error) {
-	// 在實際實現中，這裡應該調用 Pinecone 的 API
-	return []QueryResult{}, nil
-}
-
-// Delete 刪除 Pinecone 中的向量
-func (c *PineconeClient) Delete(id string) error {
-	// 在實際實現中，這裡應該調用 Pinecone 的 API
-	return nil
-}
-
-// WeaviateClient 是 Weaviate 向量數據庫的客戶端
-type WeaviateClient struct {
-	url    string
-	apiKey string
-}
-
-// NewWeaviateClient 創建一個新的 Weaviate 客戶端
-func NewWeaviateClient(url, apiKey string) *WeaviateClient {
-	return &WeaviateClient{
-		url:    url,
-		apiKey: apiKey,
-	}
-}
-
-// Connect 連接到 Weaviate
-func (c *WeaviateClient) Connect() error {
-	// 在實際實現中，這裡可能會初始化連接池或驗證憑據
-	return nil
-}
-
-// Close 關閉到 Weaviate 的連接
-func (c *WeaviateClient) Close() error {
-	// 在實際實現中，這裡可能會釋放資源
-	return nil
-}
-
-// Upsert 插入或更新 Weaviate 中的向量
-func (c *WeaviateClient) Upsert(id string, vector []float32, metadata map[string]interface{}) error {
-	// 在實際實現中，這裡應該調用 Weaviate 的 API
-	return nil
-}
-
-// Query 查詢 Weaviate 中最近的向量
-func (c *WeaviateClient) Query(vector []float32, limit int) ([]QueryResult, error) {
-	// 在實際實現中，這裡應該調用 Weaviate 的 API
-	return []QueryResult{}, nil
-}
-
-// Delete 刪除 Weaviate 中的向量
-func (c *WeaviateClient) Delete(id string) error {
-	// 在實際實現中，這裡應該調用 Weaviate 的 API
-	return nil
 }
 
 // MockVectorDBClient 是一個用於測試的模擬向量數據庫客戶端
 type MockVectorDBClient struct {
-	vectors map[string]struct {
-		Vector   []float32
-		Metadata map[string]interface{}
-	}
-	mu sync.RWMutex
+	vectors map[string]mockVectorEntry
 }
 
-// NewMockVectorDBClient 創建一個新的模擬向量數據庫客戶端
-func NewMockVectorDBClient() *MockVectorDBClient {
-	return &MockVectorDBClient{
-		vectors: make(map[string]struct {
-			Vector   []float32
-			Metadata map[string]interface{}
-		}),
-	}
+type mockVectorEntry struct {
+	vector   []float32
+	metadata map[string]interface{}
 }
 
-// Connect 連接到模擬數據庫
-func (c *MockVectorDBClient) Connect() error {
-	// 模擬實現，無需實際操作
+// Store 將向量存儲到模擬數據庫中
+func (c *MockVectorDBClient) Store(id string, vector []float32, metadata map[string]interface{}) error {
+	c.vectors[id] = mockVectorEntry{
+		vector:   vector,
+		metadata: metadata,
+	}
 	return nil
 }
 
-// Close 關閉到模擬數據庫的連接
-func (c *MockVectorDBClient) Close() error {
-	// 模擬實現，無需實際操作
-	return nil
-}
-
-// Upsert 插入或更新模擬數據庫中的向量
-func (c *MockVectorDBClient) Upsert(id string, vector []float32, metadata map[string]interface{}) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	
-	c.vectors[id] = struct {
-		Vector   []float32
-		Metadata map[string]interface{}
-	}{
-		Vector:   vector,
-		Metadata: metadata,
-	}
-	
-	return nil
-}
-
-// Query 查詢模擬數據庫中最近的向量
+// Query 查詢模擬數據庫中與給定向量最相似的向量
 func (c *MockVectorDBClient) Query(vector []float32, limit int) ([]QueryResult, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	if len(c.vectors) == 0 {
+		return []QueryResult{}, nil
+	}
 	
-	// 簡單實現：返回所有向量作為結果（在實際應用中，應計算向量相似度）
+	// 計算所有向量的相似度
 	results := make([]QueryResult, 0, len(c.vectors))
-	for id, data := range c.vectors {
+	for id, entry := range c.vectors {
+		score := cosineSimilarity(vector, entry.vector)
 		results = append(results, QueryResult{
 			ID:       id,
-			Score:    0.95, // 模擬相似度分數
-			Metadata: data.Metadata,
+			Score:    score,
+			Metadata: entry.metadata,
 		})
-		
-		if len(results) >= limit {
-			break
-		}
+	}
+	
+	// 按相似度排序
+	sortQueryResults(results)
+	
+	// 限制結果數量
+	if limit > 0 && limit < len(results) {
+		results = results[:limit]
 	}
 	
 	return results, nil
 }
 
-// Delete 刪除模擬數據庫中的向量
+// Delete 從模擬數據庫中刪除向量
 func (c *MockVectorDBClient) Delete(id string) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	
 	delete(c.vectors, id)
-	
 	return nil
+}
+
+// cosineSimilarity 計算兩個向量之間的餘弦相似度
+func cosineSimilarity(a, b []float32) float32 {
+	if len(a) != len(b) {
+		return 0
+	}
+	
+	var dotProduct, normA, normB float32
+	for i := 0; i < len(a); i++ {
+		dotProduct += a[i] * b[i]
+		normA += a[i] * a[i]
+		normB += b[i] * b[i]
+	}
+	
+	if normA == 0 || normB == 0 {
+		return 0
+	}
+	
+	return dotProduct / (float32(normA) * float32(normB))
+}
+
+// sortQueryResults 按相似度降序排序查詢結果
+func sortQueryResults(results []QueryResult) {
+	// 使用簡單的冒泡排序（實際應用中可能使用更高效的排序算法）
+	for i := 0; i < len(results); i++ {
+		for j := i + 1; j < len(results); j++ {
+			if results[i].Score < results[j].Score {
+				results[i], results[j] = results[j], results[i]
+			}
+		}
+	}
 }

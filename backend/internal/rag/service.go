@@ -1,104 +1,85 @@
 package rag
 
 import (
-	"context"
-	"fmt"
-	"time"
-
 	"devlog-ai/internal/embedding"
 	"devlog-ai/internal/vectordb"
+	"fmt"
 )
 
-// RAGService provides Retrieval-Augmented Generation functionality
-type RAGService struct {
-	embeddingClient embedding.EmbeddingClient
-	vectorDBClient  vectordb.VectorDBClient
+// Service 是 RAG（檢索增強生成）服務的接口
+type Service interface {
+	// Query 處理用戶查詢並返回增強的回應
+	Query(query string, options map[string]interface{}) (string, error)
 }
 
-// NewRAGService creates a new RAG service instance
-func NewRAGService(embeddingClient embedding.EmbeddingClient, vectorDBClient vectordb.VectorDBClient) *RAGService {
-	return &RAGService{
+// service 實現了 RAG 服務接口
+type service struct {
+	embeddingClient embedding.Client
+	vectorDBClient  vectordb.VectorDBClient
+	cloudflareClient CloudflareClient
+}
+
+// NewService 創建一個新的 RAG 服務
+func NewService(embeddingClient embedding.Client, vectorDBClient vectordb.VectorDBClient, cloudflareClient CloudflareClient) Service {
+	return &service{
 		embeddingClient: embeddingClient,
 		vectorDBClient:  vectorDBClient,
+		cloudflareClient: cloudflareClient,
 	}
 }
 
-// Query processes a natural language query and returns an answer
-func (r *RAGService) Query(ctx context.Context, query string, collection string) (string, error) {
-	startTime := time.Now()
-
-	// Create embedding for the query
-	queryEmbedding, err := r.embeddingClient.CreateEmbedding(query)
-	if err != nil {
-		return "", fmt.Errorf("failed to create query embedding: %w", err)
+// Query 處理用戶查詢，檢索相關上下文，並使用 Cloudflare RAG 生成回應
+func (s *service) Query(query string, options map[string]interface{}) (string, error) {
+	// 檢查查詢是否為空
+	if query == "" {
+		return "", fmt.Errorf("query cannot be empty")
 	}
-
-	// Search for similar vectors
-	searchVector := vectordb.Vector{
-		Vector: queryEmbedding,
-	}
-
-	results, err := r.vectorDBClient.Search(ctx, collection, searchVector, 5)
-	if err != nil {
-		return "", fmt.Errorf("failed to search vector database: %w", err)
-	}
-
-	// Generate answer based on retrieved context
-	answer := r.generateAnswer(query, results)
-
-	// Log processing time
-	processingTime := time.Since(startTime).Milliseconds()
-
-	// TODO: Implement actual answer generation logic
-	// For now, return a simple response
-	return fmt.Sprintf("Based on the retrieved context, here's what I found: %s (Processed in %dms)", 
-		answer, processingTime), nil
-}
-
-// IndexDocument indexes a document for later retrieval
-func (r *RAGService) IndexDocument(ctx context.Context, collection string, documentID string, content string, metadata map[string]interface{}) error {
-	// Create embedding for the document
-	embedding, err := r.embeddingClient.CreateEmbedding(content)
-	if err != nil {
-		return fmt.Errorf("failed to create document embedding: %w", err)
-	}
-
-	// Store in vector database
-	vector := vectordb.Vector{
-		ID:       documentID,
-		Vector:   embedding,
-		Metadata: metadata,
-	}
-
-	if err := r.vectorDBClient.Upsert(ctx, collection, []vectordb.Vector{vector}); err != nil {
-		return fmt.Errorf("failed to store document in vector database: %w", err)
-	}
-
-	return nil
-}
-
-// generateAnswer generates an answer based on retrieved context
-func (r *RAGService) generateAnswer(query string, results []vectordb.SearchResult) string {
-	if len(results) == 0 {
-		return "I couldn't find any relevant information to answer your question."
-	}
-
-	// Simple answer generation - in a real implementation, this would use an LLM
-	answer := fmt.Sprintf("Based on %d relevant documents, I can help with your query: '%s'. ", len(results), query)
 	
-	for i, result := range results {
-		if i < 3 { // Limit to first 3 results
-			answer += fmt.Sprintf("Document %d (relevance: %.2f) contains relevant information. ", i+1, result.Score)
+	// 為查詢生成嵌入向量
+	queryEmbedding, err := s.embeddingClient.CreateEmbedding(query)
+	if err != nil {
+		return "", fmt.Errorf("failed to create embedding for query: %w", err)
+	}
+	
+	// 從向量數據庫中檢索相關上下文
+	limit := 5 // 默認檢索 5 個相似文檔
+	if limitOption, ok := options["limit"].(float64); ok {
+		limit = int(limitOption)
+	}
+	
+	results, err := s.vectorDBClient.Query(queryEmbedding, limit)
+	if err != nil {
+		return "", fmt.Errorf("failed to query vector database: %w", err)
+	}
+	
+	// 準備上下文
+	context := prepareContext(results)
+	
+	// 將上下文添加到選項中
+	if options == nil {
+		options = make(map[string]interface{})
+	}
+	options["context"] = context
+	
+	// 使用 Cloudflare RAG 處理查詢
+	response, err := s.cloudflareClient.Query(query, options)
+	if err != nil {
+		return "", fmt.Errorf("failed to process query with Cloudflare RAG: %w", err)
+	}
+	
+	return response, nil
+}
+
+// prepareContext 從查詢結果中提取上下文
+func prepareContext(results []vectordb.QueryResult) string {
+	context := ""
+	
+	for _, result := range results {
+		// 從元數據中提取內容
+		if content, ok := result.Metadata["content"].(string); ok {
+			context += content + "\n\n"
 		}
 	}
-
-	return answer
-}
-
-// Close closes the RAG service and its dependencies
-func (r *RAGService) Close() error {
-	if r.vectorDBClient != nil {
-		return r.vectorDBClient.Close()
-	}
-	return nil
+	
+	return context
 }

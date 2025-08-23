@@ -92,8 +92,8 @@ type User struct {
 }
 
 // ErrNoUser 是沒有用戶的錯誤
-var ErrNoUser = func() error { return errNoUser }
 var errNoUser = &noUserError{"no user found in context"}
+var ErrNoUser = errNoUser
 
 type noUserError struct {
 	msg string

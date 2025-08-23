@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"strings"
 )
 
 // Client 是一個文本嵌入生成客戶端的接口
