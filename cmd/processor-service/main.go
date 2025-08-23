@@ -1,11 +1,18 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
+	"devlog-ai/internal/api/middleware"
+	"devlog-ai/internal/embedding"
+	"devlog-ai/internal/messaging"
+	"devlog-ai/internal/processor"
+	"devlog-ai/internal/vectordb"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 )
 
@@ -16,8 +23,88 @@ func main() {
 		port = "8082"
 	}
 
+	// Check if vector database integration should be enabled
+	enableVectorDB := true
+	if val := os.Getenv("ENABLE_VECTOR_DB"); val != "" {
+		if b, err := strconv.ParseBool(val); err == nil {
+			enableVectorDB = b
+		}
+	}
+
+	// Initialize Kafka consumer
+	kafkaConsumer, err := messaging.NewKafkaConsumer()
+	if err != nil {
+		log.Fatalf("Failed to initialize Kafka consumer: %v", err)
+	}
+
+	var embeddingClient embedding.Client
+	var vectorDBClient vectordb.Client
+
+	// Initialize embedding client if vector database is enabled
+	if enableVectorDB {
+		// Get embedding client configuration
+		embeddingConfig, err := embedding.GetConfigFromEnv()
+		if err != nil {
+			log.Printf("Warning: %v", err)
+			log.Printf("Embedding client will not be available")
+		} else {
+			embeddingClient, err = embedding.NewClient(embeddingConfig)
+			if err != nil {
+				log.Printf("Warning: Failed to initialize embedding client: %v", err)
+				log.Printf("Embedding client will not be available")
+			} else {
+				log.Printf("Embedding client initialized with type: %s", embeddingConfig.Type)
+			}
+		}
+
+		// Get vector database configuration
+		vectorDBConfig, err := vectordb.GetConfigFromEnv()
+		if err != nil {
+			log.Printf("Warning: %v", err)
+			log.Printf("Vector database will not be available")
+		} else {
+			vectorDBClient, err = vectordb.NewClient(vectorDBConfig)
+			if err != nil {
+				log.Printf("Warning: Failed to initialize vector database client: %v", err)
+				log.Printf("Vector database will not be available")
+			} else {
+				log.Printf("Vector database client initialized with type: %s", vectorDBConfig.Type)
+				
+				// Test connection to vector database
+				if err := vectorDBClient.Connect(); err != nil {
+					log.Printf("Warning: Failed to connect to vector database: %v", err)
+					log.Printf("Vector database will not be available")
+					vectorDBClient = nil
+				} else {
+					log.Printf("Successfully connected to vector database")
+				}
+			}
+		}
+	}
+
+	// Create and start the processor service
+	processorService := processor.NewService(
+		kafkaConsumer,
+		embeddingClient,
+		vectorDBClient,
+		processor.ServiceConfig{
+			EnableVectorDB: enableVectorDB && embeddingClient != nil && vectorDBClient != nil,
+		},
+	)
+	
+	if err := processorService.Start(); err != nil {
+		log.Fatalf("Failed to start processor service: %v", err)
+	}
+	defer processorService.Stop()
+
 	// Create a new ServeMux
 	mux := http.NewServeMux()
+
+	// Define public paths that don't require authentication
+	publicPaths := []string{
+		"/health",
+		// Add other public paths as needed
+	}
 
 	// Register routes
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -26,10 +113,13 @@ func main() {
 		w.Write([]byte(`{"status":"healthy"}`))
 	})
 
-	// Create a server with middleware
+	// Apply middleware
+	handler := middleware.LoggingMiddleware(middleware.CORSMiddleware(middleware.AuthMiddleware(publicPaths)(mux)))
+
+	// Create a server with TLS
 	server := http.Server{
 		Addr:         ":" + port,
-		Handler:      mux,
+		Handler:      handler,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  120 * time.Second,
@@ -55,17 +145,40 @@ func main() {
 		keyPath = filepath.Join("certs", "server.key")
 	}
 
-	// Check if TLS certificates exist
-	if _, err := os.Stat(certPath); os.IsNotExist(err) {
-		log.Printf("Warning: TLS certificate not found at %s, falling back to HTTP", certPath)
-		log.Printf("Starting Processor Service on HTTP port %s", port)
-		if err := server.ListenAndServe(); err != nil {
-			log.Fatalf("Error starting server: %v", err)
+	// Handle graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		// Check if TLS certificates exist
+		if _, err := os.Stat(certPath); os.IsNotExist(err) {
+			log.Printf("Warning: TLS certificate not found at %s, falling back to HTTP", certPath)
+			log.Printf("Starting Processor Service on HTTP port %s", port)
+			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("Error starting server: %v", err)
+				cancel()
+			}
+		} else {
+			log.Printf("Starting Processor Service on HTTPS port %s", port)
+			if err := server.ListenAndServeTLS(certPath, keyPath); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("Error starting server: %v", err)
+				cancel()
+			}
 		}
-	} else {
-		log.Printf("Starting Processor Service on HTTPS port %s", port)
-		if err := server.ListenAndServeTLS(certPath, keyPath); err != nil {
-			log.Fatalf("Error starting server: %v", err)
-		}
+	}()
+
+	// Wait for context cancellation
+	<-ctx.Done()
+	log.Print("Server shutting down...")
+
+	// Create a deadline for shutdown
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+
+	// Attempt graceful shutdown
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Fatalf("Server shutdown failed: %v", err)
 	}
+
+	log.Print("Server gracefully stopped")
 }
