@@ -4,85 +4,55 @@ import (
 	"regexp"
 )
 
-// PIIDetector detects and anonymizes Personally Identifiable Information
+// PIIDetector 用於檢測和匿名化個人識別信息（PII）
 type PIIDetector struct {
-	emailRegex    *regexp.Regexp
-	phoneRegex    *regexp.Regexp
-	creditCardRegex *regexp.Regexp
-	ssnRegex      *regexp.Regexp
+	patterns map[string]*regexp.Regexp
 }
 
-// NewPIIDetector creates a new PII detector instance
+// NewPIIDetector 創建一個新的 PII 檢測器
 func NewPIIDetector() *PIIDetector {
-	return &PIIDetector{
-		emailRegex:    regexp.MustCompile(`[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}`),
-		phoneRegex:    regexp.MustCompile(`(\+?1[-.\s]?)?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})`),
-		creditCardRegex: regexp.MustCompile(`\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b`),
-		ssnRegex:      regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`),
+	detector := &PIIDetector{
+		patterns: make(map[string]*regexp.Regexp),
 	}
+	
+	// 編譯常見 PII 的正則表達式模式
+	detector.patterns["EMAIL"] = regexp.MustCompile(`\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b`)
+	detector.patterns["PHONE"] = regexp.MustCompile(`\b(\+\d{1,3}[-.\s]?)?(\(?\d{1,4}\)?[-.\s]?)?(\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9})\b`)
+	detector.patterns["CREDIT_CARD"] = regexp.MustCompile(`\b(\d{4}[-\s]?){3}\d{4}\b|\b\d{16}\b`)
+	detector.patterns["SSN"] = regexp.MustCompile(`\b\d{3}[-\s]?\d{2}[-\s]?\d{4}\b|\b\d{9}\b`)
+	detector.patterns["IP_ADDRESS"] = regexp.MustCompile(`\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b|\b([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b`)
+	
+	return detector
 }
 
-// DetectAndAnonymize scans text for PII and replaces it with anonymized versions
-func (p *PIIDetector) DetectAndAnonymize(text string) string {
+// Anonymize 匿名化字符串中的 PII
+func (d *PIIDetector) Anonymize(text string) string {
 	result := text
 	
-	// Anonymize emails
-	result = p.emailRegex.ReplaceAllString(result, "[EMAIL_REDACTED]")
-	
-	// Anonymize phone numbers
-	result = p.phoneRegex.ReplaceAllString(result, "[PHONE_REDACTED]")
-	
-	// Anonymize credit card numbers
-	result = p.creditCardRegex.ReplaceAllString(result, "[CREDIT_CARD_REDACTED]")
-	
-	// Anonymize SSNs
-	result = p.ssnRegex.ReplaceAllString(result, "[SSN_REDACTED]")
+	// 對每種 PII 類型進行匿名化
+	for piiType, pattern := range d.patterns {
+		result = pattern.ReplaceAllString(result, "["+piiType+"]")
+	}
 	
 	return result
 }
 
-// DetectPII scans text and returns a list of detected PII types
-func (p *PIIDetector) DetectPII(text string) []string {
-	var detected []string
+// DetectPII 檢測字符串中的 PII 類型
+func (d *PIIDetector) DetectPII(text string) []string {
+	var detectedTypes []string
 	
-	if p.emailRegex.MatchString(text) {
-		detected = append(detected, "email")
-	}
-	
-	if p.phoneRegex.MatchString(text) {
-		detected = append(detected, "phone")
-	}
-	
-	if p.creditCardRegex.MatchString(text) {
-		detected = append(detected, "credit_card")
-	}
-	
-	if p.ssnRegex.MatchString(text) {
-		detected = append(detected, "ssn")
-	}
-	
-	return detected
-}
-
-// IsPII checks if a specific text contains PII
-func (p *PIIDetector) IsPII(text string) bool {
-	return len(p.DetectPII(text)) > 0
-}
-
-// AnonymizeLogEntry anonymizes sensitive fields in a log entry
-func (p *PIIDetector) AnonymizeLogEntry(logEntry map[string]interface{}) map[string]interface{} {
-	anonymized := make(map[string]interface{})
-	
-	for key, value := range logEntry {
-		switch v := value.(type) {
-		case string:
-			anonymized[key] = p.DetectAndAnonymize(v)
-		case map[string]interface{}:
-			anonymized[key] = p.AnonymizeLogEntry(v)
-		default:
-			anonymized[key] = v
+	// 檢查每種 PII 類型
+	for piiType, pattern := range d.patterns {
+		if pattern.MatchString(text) {
+			detectedTypes = append(detectedTypes, piiType)
 		}
 	}
 	
-	return anonymized
+	return detectedTypes
+}
+
+// AnonymizePII 是一個方便的函數，用於匿名化文本中的 PII
+func AnonymizePII(text string) string {
+	detector := NewPIIDetector()
+	return detector.Anonymize(text)
 }

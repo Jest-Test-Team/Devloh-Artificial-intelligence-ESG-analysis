@@ -91,3 +91,48 @@ func mustMarshal(v interface{}) []byte {
 	}
 	return data
 }
+
+// IngestLogBatchHandler handles batch log ingestion requests
+func IngestLogBatchHandler(producer KafkaProducer) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var logs []models.LogEntry
+		if err := json.NewDecoder(r.Body).Decode(&logs); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		// Set user ID from context if available
+		if userID := getUserIDFromContext(r.Context()); userID != "" {
+			for i := range logs {
+				logs[i].UserID = userID
+			}
+		}
+
+		// Set timestamps and generate IDs
+		now := time.Now()
+		for i := range logs {
+			if logs[i].ID == "" {
+				logs[i].ID = generateLogID()
+			}
+			logs[i].CreatedAt = now
+			logs[i].UpdatedAt = now
+		}
+
+		// Send to Kafka
+		if err := producer.SendLogBatch(logs); err != nil {
+			http.Error(w, "Failed to process log batch", http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{
+			"status":  "success",
+			"message": "Log batch ingested successfully",
+		})
+	}
+}
