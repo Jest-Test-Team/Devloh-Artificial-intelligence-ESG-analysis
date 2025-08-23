@@ -64,7 +64,81 @@
 | **IoT/即時通訊** | MQTT |
 
 ---
+ 
+### project structure
+``` plaintext
+devloh-artificial-intelligence-ESG-analysis/
+├── .github/
+│   └── workflows/
+│       └── ci-cd.yaml         # GitHub Actions workflow for building, testing, and deploying
+│
+├── backend/
+│   ├── cmd/
+│   │   ├── api-service/       # Entrypoint for the API service
+│   │   │   └── main.go
+│   │   ├── ingestor-service/  # Entrypoint for the log ingestion service
+│   │   │   └── main.go
+│   │   ├── processor-service/ # Entrypoint for the log processing service
+│   │   │   └── main.go
+│   │   └── esg-calculator/    # Entrypoint for the ESG calculation service
+│   │       └── main.go
+│   │
+│   ├── internal/              # Shared internal packages (not for export)
+│   │   ├── agent/             # Logic for multi-agent systems
+│   │   ├── ai/                # RAG and LangChain core logic
+│   │   ├── database/          # Database connection and query logic
+│   │   └── messaging/         # Kafka/RabbitMQ producers and consumers
+│   │
+│   ├── pkg/                   # Shared packages that can be used externally
+│   │   └── apimodels/         # API request/response structs
+│   │
+│   ├── Dockerfile.api         # Dockerfile for the API service
+│   ├── Dockerfile.ingestor    # Dockerfile for the ingestor service
+│   ├── Dockerfile.processor   # Dockerfile for the processor service
+│   ├── go.mod                 # Go module dependencies
+│   └── go.sum
+│
+├── frontend/                  # Flutter application
+│   ├── lib/
+│   │   ├── api/               # API client services
+│   │   ├── models/            # Data models
+│   │   ├── providers/         # State management (Riverpod/Provider)
+│   │   ├── screens/           # UI screens/pages (login, dashboard, esg)
+│   │   └── widgets/           # Reusable UI components
+│   │   └── main.dart          # Main entrypoint for the Flutter app
+│   │
+│   ├── assets/                # Images, fonts, etc.
+│   ├── test/                  # Unit and widget tests
+│   └── pubspec.yaml           # Flutter package dependencies
+│
+├── infra/
+│   ├── production/
+│   │   ├── main.tf            # Main Terraform file for production
+│   │   ├── variables.tf       # Production variables
+│   │   └── terraform.tfvars   # Production variable values
+│   │
+│   ├── staging/
+│   │   ├── main.tf            # Main Terraform file for staging
+│   │   ├── variables.tf       # Staging variables
+│   │   └── terraform.tfvars   # Staging variable values
+│   │
+│   └── modules/               # Reusable Terraform modules
+│       ├── oke-cluster/       # Module for creating the OKE cluster
+│       ├── database/          # Module for setting up databases
+│       └── networking/        # Module for VCN and networking resources
+│
+├── k8s/                       # Kubernetes manifests
+│   ├── base/                  # Base manifests (common to all environments)
+│   │   ├── api-deployment.yaml
+│   │   └── ingestor-deployment.yaml
+│   └── overlays/              # Environment-specific customizations (Kustomize)
+│       ├── production/
+│       └── staging/
+│
+└── README.md                  # The main project documentation (our plan)
+```
 
+___
 ## 10 階段開發藍圖 (10-Phase Development Roadmap)
 
 *此藍圖將在上述「風險與緩解策略」的指導下進行。*
